@@ -7,4 +7,5 @@ pandas
 pyyaml
 matplotlib
 pytest
+anduril-lattice-sdk>=5.1   # the Lattice Entity mapping in lattice/ (publishes detections into a COP)
 # the fine-tune + inference deps (ultralytics, torch, datasets) live in the Modal image

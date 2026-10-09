@@ -129,7 +129,8 @@ def _materialise(dest: str) -> dict:
 
 @app.function(image=image, gpu="A10G", volumes={CACHE: cache}, timeout=4 * 60 * 60)
 def run(epochs: int = 20, max_test_images: int = 200,
-        severities: list[float] = [0.0, 0.25, 0.5, 0.75, 1.0]):
+        severities: list[float] = [0.0, 0.25, 0.5, 0.75, 1.0],
+        model: str = "yolov8n.pt"):
     import os
     from ultralytics import YOLO
 
@@ -139,19 +140,20 @@ def run(epochs: int = 20, max_test_images: int = 200,
 
     paths = _materialise(f"{CACHE}/hituav_yolo")
 
-    # fine-tune (cached across runs by the Volume)
-    weights = f"{CACHE}/yolov8s_hituav.pt"
+    # fine-tune (cached per model by the Volume)
+    stem = model.replace(".pt", "")
+    weights = f"{CACHE}/{stem}_hituav.pt"
     if not os.path.exists(weights):
-        model = YOLO("yolov8s.pt")
-        model.train(data=paths["data_yaml"], epochs=epochs, imgsz=640,
-                    project=f"{CACHE}/runs", name="hituav", exist_ok=True, verbose=False)
-        best = f"{CACHE}/runs/hituav/weights/best.pt"
+        base_model = YOLO(model)
+        base_model.train(data=paths["data_yaml"], epochs=epochs, imgsz=640,
+                         project=f"{CACHE}/runs", name=f"hituav_{stem}", exist_ok=True, verbose=False)
+        best = f"{CACHE}/runs/hituav_{stem}/weights/best.pt"
         YOLO(best).save(weights)
         cache.commit()
-    model = YOLO(weights)
+    yolo = YOLO(weights)
 
     def responder(image) -> list[Det]:
-        r = model.predict(image, imgsz=640, verbose=False, conf=0.05)[0]
+        r = yolo.predict(image, imgsz=640, verbose=False, conf=0.05)[0]
         out = []
         for b in r.boxes:
             cx, cy, w, h = b.xywhn[0].tolist()
@@ -177,7 +179,7 @@ def run(epochs: int = 20, max_test_images: int = 200,
         base = baseline_calibration(df, gpc)
         summary = integrity_summary(agg)
 
-        outd = pathlib.Path(f"{CACHE}/results_thermal_yolov8s")
+        outd = pathlib.Path(f"{CACHE}/results_thermal_{stem}")
         outd.mkdir(exist_ok=True)
         df.to_csv(outd / "records.csv", index=False)
         agg.to_csv(outd / "aggregate.csv", index=False)
@@ -194,7 +196,7 @@ def run(epochs: int = 20, max_test_images: int = 200,
         print(control_check(agg))
         print("\n=== risk-coverage (clean) ===")
         print(risk_coverage(df).to_string(index=False))
-        print(f"\n[audit] wrote CSVs to the volume at {CACHE}/results_thermal/")
+        print(f"\n[audit] wrote CSVs to the volume at {CACHE}/results_thermal_{stem}/")
     except Exception as e:  # never let the metrics step lose the raw GPU result
         print(f"[audit] metrics/persist step failed (raw records still returned): {e!r}")
 
@@ -216,15 +218,17 @@ def _inspect():
 
 
 @app.local_entrypoint()
-def main(epochs: int = 20, max_test_images: int = 200, out: str = "results_thermal_yolov8s",
-         severities: str = "0,0.25,0.5,0.75,1.0"):
+def main(epochs: int = 20, max_test_images: int = 200, out: str = "",
+         severities: str = "0,0.25,0.5,0.75,1.0", model: str = "yolov8n.pt"):
     import pathlib
 
     from src.metrics import (aggregate, baseline_calibration, control_check,
                              integrity_summary, risk_coverage, to_frame)
 
     sev = [float(x) for x in severities.split(",") if x.strip() != ""]
-    res = run.remote(epochs=epochs, max_test_images=max_test_images, severities=sev)
+    if not out:
+        out = f"results_thermal_{model.replace('.pt', '')}"
+    res = run.remote(epochs=epochs, max_test_images=max_test_images, severities=sev, model=model)
     records, gt_per_class, names = res["records"], res["gt_per_class"], res["names"]
     gt_per_class = {int(k): int(v) for k, v in gt_per_class.items()}
 
