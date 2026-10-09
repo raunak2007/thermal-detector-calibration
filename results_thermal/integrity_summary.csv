@@ -1,0 +1,8 @@
+perturbation,is_control,map_at_0,map_at_max,map_drop,conf_at_0,conf_at_max,conf_drop,dece_at_0,dece_at_max,integrity_gap
+motion_blur,False,92.2,7.5,84.7,40.0,27.9,12.1,0.169,0.09,72.6
+range_detail_loss,False,92.2,2.7,89.5,40.0,18.7,21.3,0.169,0.466,68.2
+atmospheric_blur,False,92.2,0.3,91.9,40.0,14.1,25.9,0.169,0.25,66.1
+sensor_noise,False,92.2,4.4,87.8,40.0,16.5,23.5,0.169,0.487,64.3
+low_contrast,False,92.2,36.0,56.2,40.0,26.1,13.9,0.169,0.494,42.3
+background_marks,True,92.2,88.1,4.1,40.0,37.4,2.6,0.169,0.148,1.4
+clean,False,92.2,92.2,0.0,40.0,40.0,0.0,0.169,0.169,0.0

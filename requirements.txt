@@ -1,0 +1,10 @@
+# local (no-GPU) deps for the smoke run, tests, and scoring
+modal
+numpy<2.2
+pillow
+scipy
+pandas
+pyyaml
+matplotlib
+pytest
+# the fine-tune + inference deps (ultralytics, torch, datasets) live in the Modal image
