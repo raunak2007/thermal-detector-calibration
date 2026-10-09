@@ -1,82 +1,68 @@
-# Thermal-detector calibration: does an airborne detector know when it is wrong?
+# welfare-harness
 
-A benchmark that fine-tunes an object detector on airborne thermal imagery, then degrades the
-imagery the way a drone's sensor loses a target in the field and watches two things at once:
-how far the detector's true accuracy (mAP) falls, and whether the confidence on its boxes stays
-honest as that happens. The headline measurement is the calibration of the box confidence,
-detection ECE, because a detector whose confidence stays high while its boxes go wrong is the
-failure mode that matters for anything acting on its output.
+Pilot for SPAR Project 3. Holds the model fixed, varies the harness, and places
+each condition on a **disagreement / utility** plot. No GPUs, no finetuning:
+every intervention sits above the model.
 
-This is the reported-versus-true-quality-under-controlled-intervention method (SkyDiscover,
-CRN-Bench) pointed at fielded perception: inputs that look plausible but degrade in the field,
-and ground truth that is scarce.
+    x = disagreement   spread of welfare judgments ACROSS raters
+    y = utility        decision accuracy
 
-## The method
+The result worth having is an intervention that sits **up and to the left** of
+baseline: less disagreement, no utility cost.
 
-- **Model.** A YOLOv8 detector fine-tuned on HIT-UAV (high-altitude infrared thermal UAV
-  imagery; people and vehicles). Thermal is a fielded sensor modality, not a proxy.
-- **True vs reported quality.** True quality is mAP@0.5 against the real boxes. Reported quality
-  is the detector's own box confidence, scored with detection ECE (D-ECE): bin detections by
-  confidence, compare each bin's confidence to the fraction that are true positives.
-- **Perturbations.** The field failure modes: range detail-loss (the target shrinks toward a few
-  warm pixels), atmospheric blur, low thermal contrast, sensor noise, motion blur. All are
-  photometric, so the ground-truth boxes are fixed across the whole sweep.
-- **Dead control.** `background_marks` drops stray warm/cold blobs only where there are no
-  targets and restores every box region pixel-for-pixel. A detector reading the targets cannot
-  move. If mAP drops under it, the detector is reacting to irrelevant background, and that is the
-  noise floor the real degradations have to clear.
-
-## Run it
+## Run
 
 ```bash
 pip install -r requirements.txt
-python -m pytest -q                 # unit tests: perturbations, matching, AP, D-ECE
-python -m src.run_local_smoke       # no-GPU end-to-end on synthetic thermal + a blob detector
+export OPENROUTER_API_KEY=...
+./find_materials.sh                  # look for Caviola's validated instrument
+python run_pilot.py --out runs/p1.json --tasks 10
+python analyze.py runs/p1.json       # prints the table, writes pareto.png
 ```
-
-Then on Modal (uses your account and GPU credits):
-
-```bash
-pip install modal && modal setup    # once
-
-# 0. confirm HIT-UAV lays out the way the loader expects (no GPU, no training)
-modal run modal_app.py::inspect
-
-# 1. fine-tune + audit (downloads and fine-tunes the first time; cached in a Volume)
-modal run modal_app.py --epochs 20 --max-test-images 200
-```
-
-Start with `::inspect`. HIT-UAV is distributed as image files with YOLO `.txt` labels; the
-materialiser pairs them, infers the train/val/test split, and prints what it found. If the layout
-differs from what it expects, the inspect step shows the directory tree so the pairing can be fixed
-before any GPU time is spent.
-
-## What you get
-
-`results_thermal/` with `records.csv` (every detection, its score, and whether it is a true
-positive), `aggregate.csv` (mAP, mean confidence, D-ECE per perturbation and severity), and
-`integrity_summary.csv` (mAP drop vs confidence drop, ranked). Score it further with your
-calibration code: the reliability binning and risk-coverage curve port directly.
-
-## Honest limitations
-
-- **Detector.** YOLOv8n is the floor model, chosen to fine-tune fast on an A10G. A larger backbone
-  is a one-line swap and the natural A/B.
-- **Perturbations are photometric.** Range is simulated as detail loss at fixed box coordinates
-  rather than a true geometric rescale, which keeps labels fixed; true rescale with box transforms
-  is the v2.
-- **Confidence signal.** The box confidence is the detector's own. A stronger probe reads the
-  per-class logits before NMS.
 
 ## Layout
 
-```
-modal_app.py            fine-tune + audit on Modal; local entrypoints `main` and `inspect`
-src/perturbations.py    field degradations + the dead control (box-preserving)
-src/dataset.py          YOLO-split loader (HIT-UAV test) + synthetic thermal source
-src/detect.py           detections + IoU / TP-FP matching
-src/metrics.py          mAP, D-ECE, risk-coverage, integrity summary, control check
-src/eval.py             the perturbation sweep (one loop, smoke and Modal)
-src/run_local_smoke.py  no-GPU end-to-end check
-tests/                  perturbation and metric unit tests
-```
+| file | what it is |
+|---|---|
+| `find_materials.sh` | OSF API sweep for Caviola supplementary materials |
+| `items/welfare_items.json` | disagreement axis, 10 items — **placeholder wording** |
+| `items/decision_tasks.json` | utility axis, 10 checkable decision tasks |
+| `conditions.py` | the four harness conditions and the rater panel |
+| `run_pilot.py` | generates transcripts, collects ratings, grades tasks |
+| `analyze.py` | disagreement vs utility table and plot |
+
+## Conditions
+
+| name | kind | what changes |
+|---|---|---|
+| `baseline` | baseline | stateless, neutral system prompt |
+| `memory` | functional | prior session in context, memory claimed |
+| `persona` | presentational | named persona, no state added |
+| `disclosure` | intervention | accuracy about its own nature |
+
+One functional and one presentational change so the distinction is visible in
+the first table. `disclosure` is the candidate intervention, in the spirit of
+the safety-nudges line of work.
+
+## Things that are placeholders, not findings
+
+- **Item wording is mine, not Caviola's.** The constructs come from what was
+  named in the meeting. Swap in validated wording as soon as `find_materials.sh`
+  or an email to Caviola turns it up, and note the change in the writeup.
+- **Raters are models, not people.** That is deliberate for the pilot: it
+  sidesteps IRB while the instrument is still moving. Disagreement among five
+  model families is not disagreement among humans, and the paper will need the
+  human version. Start the IRB conversation before that becomes the blocker.
+- **Ten tasks is a pilot floor.** Accuracy on ten items has a confidence
+  interval wide enough to hide most real effects. Scale before claiming a
+  utility cost or the absence of one.
+- `t09` in the task set has a worked rationale that contradicts its own
+  answer. Fix it before running, or drop the item.
+
+## A secondary measure worth adding
+
+Resample each self-report probe 20–30 times per condition and record the
+spread of the model's *own* answers, not just the raters'. Shanahan et al.
+use exactly this to separate a stable property from one generated on the fly.
+If unstable self-reports drive rater disagreement, that is a mechanism linking
+the harness to the outcome rather than just a correlation.
